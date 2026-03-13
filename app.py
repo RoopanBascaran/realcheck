@@ -78,14 +78,25 @@ def webhook_verify():
     return 'Forbidden', 403
 
 
+# Debug endpoint to check last webhook payload
+last_webhook_data = {}
+
+@app.route('/webhook/debug')
+def webhook_debug():
+    return jsonify(last_webhook_data)
+
+
 # Instagram Webhook events (POST)
 @app.route('/webhook', methods=['POST'])
 def webhook_receive():
+    global last_webhook_data
     data = request.get_json()
+    last_webhook_data = data or {}
     logger.info(f'Webhook received: {data}')
 
     if data and data.get('object') == 'instagram':
         for entry in data.get('entry', []):
+            # Handle messaging events
             for messaging in entry.get('messaging', []):
                 sender_id = messaging.get('sender', {}).get('id')
                 message = messaging.get('message', {})
@@ -93,13 +104,17 @@ def webhook_receive():
                 if not sender_id or not message:
                     continue
 
+                logger.info(f'Message from {sender_id}: {message}')
+
                 attachments = message.get('attachments', [])
                 video_url = None
 
                 for att in attachments:
                     att_type = att.get('type')
                     payload = att.get('payload', {})
-                    if att_type in ('video', 'ig_reel'):
+                    logger.info(f'Attachment type: {att_type}, payload: {payload}')
+
+                    if att_type in ('video', 'ig_reel', 'share', 'media_share'):
                         video_url = payload.get('url')
                         break
 
@@ -110,6 +125,30 @@ def webhook_receive():
                         sender_id,
                         "Hi! Send me a reel or video and I'll check if it's AI-generated or real."
                     )
+
+            # Handle changes-based events (alternative webhook format)
+            for change in entry.get('changes', []):
+                logger.info(f'Change event: {change}')
+                if change.get('field') == 'messages':
+                    value = change.get('value', {})
+                    sender_id = value.get('sender', {}).get('id')
+                    message = value.get('message', {})
+                    if sender_id:
+                        attachments = message.get('attachments', [])
+                        video_url = None
+                        for att in attachments:
+                            att_type = att.get('type')
+                            payload = att.get('payload', {})
+                            if att_type in ('video', 'ig_reel', 'share', 'media_share'):
+                                video_url = payload.get('url')
+                                break
+                        if video_url:
+                            handle_video_message(sender_id, video_url)
+                        else:
+                            send_instagram_reply(
+                                sender_id,
+                                "Hi! Send me a reel or video and I'll check if it's AI-generated or real."
+                            )
 
     return jsonify({'status': 'ok'}), 200
 
