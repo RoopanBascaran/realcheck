@@ -56,6 +56,15 @@ def feedback():
     retrain_model()
     return 'Feedback received', 200
 
+@app.route('/privacy')
+def privacy():
+    return '''<h1>Privacy Policy - Check4Real</h1>
+    <p>Check4Real analyzes videos sent via Instagram DM to detect AI-generated content.</p>
+    <p>We only process the video you send. We do not store your personal data or messages.</p>
+    <p>Videos are temporarily downloaded for analysis and immediately deleted after processing.</p>
+    <p>Contact: roopan@check4real.com</p>''', 200
+
+
 # Instagram Webhook verification (GET)
 @app.route('/webhook', methods=['GET'])
 def webhook_verify():
