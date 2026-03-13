@@ -1,6 +1,15 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, jsonify
 from werkzeug.utils import secure_filename
 import os
+import requests
+import logging
+import tempfile
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+INSTAGRAM_ACCESS_TOKEN = os.environ.get('INSTAGRAM_ACCESS_TOKEN')
+WEBHOOK_VERIFY_TOKEN = os.environ.get('WEBHOOK_VERIFY_TOKEN', 'check4real_verify')
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'static/uploads'
@@ -8,7 +17,6 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 model = None
-
 def get_model():
     global model
     if model is None:
@@ -47,6 +55,97 @@ def feedback():
     collect_feedback(video_id, user_feedback)
     retrain_model()
     return 'Feedback received', 200
+
+# Instagram Webhook verification (GET)
+@app.route('/webhook', methods=['GET'])
+def webhook_verify():
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
+    challenge = request.args.get('hub.challenge')
+
+    if mode == 'subscribe' and token == WEBHOOK_VERIFY_TOKEN:
+        logger.info('Webhook verified successfully')
+        return challenge, 200
+    return 'Forbidden', 403
+
+
+# Instagram Webhook events (POST)
+@app.route('/webhook', methods=['POST'])
+def webhook_receive():
+    data = request.get_json()
+    logger.info(f'Webhook received: {data}')
+
+    if data and data.get('object') == 'instagram':
+        for entry in data.get('entry', []):
+            for messaging in entry.get('messaging', []):
+                sender_id = messaging.get('sender', {}).get('id')
+                message = messaging.get('message', {})
+
+                if not sender_id or not message:
+                    continue
+
+                attachments = message.get('attachments', [])
+                video_url = None
+
+                for att in attachments:
+                    att_type = att.get('type')
+                    payload = att.get('payload', {})
+                    if att_type in ('video', 'ig_reel'):
+                        video_url = payload.get('url')
+                        break
+
+                if video_url:
+                    handle_video_message(sender_id, video_url)
+                else:
+                    send_instagram_reply(
+                        sender_id,
+                        "Hi! Send me a reel or video and I'll check if it's AI-generated or real."
+                    )
+
+    return jsonify({'status': 'ok'}), 200
+
+
+def handle_video_message(sender_id, video_url):
+    try:
+        send_instagram_reply(sender_id, "Analyzing your video... please wait.")
+
+        # Download video to temp file
+        response = requests.get(video_url, stream=True, timeout=60)
+        response.raise_for_status()
+
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+            for chunk in response.iter_content(chunk_size=8192):
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        # Classify the video
+        result = classify_video(tmp_path)
+
+        # Clean up
+        os.unlink(tmp_path)
+
+        send_instagram_reply(sender_id, f"Result: This video appears to be {result}")
+
+    except Exception as e:
+        logger.error(f'Error processing video: {e}')
+        send_instagram_reply(sender_id, "Sorry, I couldn't process that video. Please try again.")
+
+
+def send_instagram_reply(recipient_id, text):
+    url = f'https://graph.instagram.com/v21.0/me/messages'
+    headers = {
+        'Authorization': f'Bearer {INSTAGRAM_ACCESS_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    payload = {
+        'recipient': {'id': recipient_id},
+        'message': {'text': text}
+    }
+    resp = requests.post(url, json=payload, headers=headers, timeout=30)
+    if resp.status_code != 200:
+        logger.error(f'Failed to send message: {resp.status_code} {resp.text}')
+    return resp
+
 
 if __name__ == '__main__':
     debug = os.environ.get('FLASK_DEBUG', 'true').lower() == 'true'
