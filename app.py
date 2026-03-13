@@ -119,7 +119,13 @@ def webhook_receive():
                         break
 
                 if video_url:
+                    # First confirm we can reply
+                    logger.info(f'Found video URL, sending to handler: {video_url[:100]}...')
                     handle_video_message(sender_id, video_url)
+                elif attachments:
+                    # Log unknown attachment types for debugging
+                    logger.info(f'Unknown attachment types: {[a.get("type") for a in attachments]}')
+                    send_instagram_reply(sender_id, "I received your message but couldn't find a video. Please send a reel directly.")
                 else:
                     send_instagram_reply(
                         sender_id,
@@ -155,10 +161,12 @@ def webhook_receive():
 
 def handle_video_message(sender_id, video_url):
     try:
-        send_instagram_reply(sender_id, "Analyzing your video... please wait.")
+        resp = send_instagram_reply(sender_id, "Analyzing your video... please wait.")
+        logger.info(f'Initial reply response: {resp.status_code} {resp.text}')
 
         # Download video to temp file
         response = requests.get(video_url, stream=True, timeout=60)
+        logger.info(f'Video download status: {response.status_code}')
         response.raise_for_status()
 
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
