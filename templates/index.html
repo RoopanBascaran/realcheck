@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepScan - AI Video Classifier</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Inter',sans-serif;background:#0a0a0f;color:#e0e0e0;min-height:100vh;overflow-x:hidden}
+        .bg-glow{position:fixed;top:-40%;left:-20%;width:60%;height:80%;background:radial-gradient(circle,rgba(99,102,241,.15) 0%,transparent 70%);pointer-events:none;z-index:0}
+        .bg-glow-2{position:fixed;bottom:-40%;right:-20%;width:60%;height:80%;background:radial-gradient(circle,rgba(168,85,247,.1) 0%,transparent 70%);pointer-events:none;z-index:0}
+        nav{position:relative;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:20px 48px;border-bottom:1px solid rgba(255,255,255,.06);backdrop-filter:blur(20px);background:rgba(10,10,15,.8)}
+        .logo{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700;color:#fff;text-decoration:none}
+        .logo-icon{width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#a855f7);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff}
+        .nav-links{display:flex;gap:32px;list-style:none}
+        .nav-links a{color:#888;text-decoration:none;font-size:14px;font-weight:500;transition:color .2s}
+        .nav-links a:hover{color:#fff}
+        .hero{position:relative;z-index:1;max-width:800px;margin:0 auto;padding:100px 24px 60px;text-align:center}
+        .badge{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:100px;font-size:13px;color:#a5b4fc;margin-bottom:28px}
+        .badge-dot{width:6px;height:6px;background:#6366f1;border-radius:50%;animation:pulse 2s infinite}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        h1{font-size:52px;font-weight:700;line-height:1.15;margin-bottom:20px;background:linear-gradient(to right,#fff,#a5b4fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+        .subtitle{font-size:18px;color:#888;line-height:1.6;max-width:560px;margin:0 auto 48px}
+        .upload-area{position:relative;z-index:1;max-width:620px;margin:0 auto;padding:0 24px 80px}
+        .drop-zone{border:2px dashed rgba(99,102,241,.3);border-radius:20px;padding:60px 40px;text-align:center;background:rgba(255,255,255,.02);transition:all .3s;cursor:pointer}
+        .drop-zone:hover,.drop-zone.dragover{border-color:#6366f1;background:rgba(99,102,241,.05)}
+        .drop-icon{width:64px;height:64px;margin:0 auto 20px;background:linear-gradient(135deg,rgba(99,102,241,.2),rgba(168,85,247,.2));border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px}
+        .drop-text{font-size:16px;color:#aaa;margin-bottom:8px}
+        .drop-text strong{color:#a5b4fc}
+        .drop-hint{font-size:13px;color:#555}
+        .file-input{display:none}
+        .file-info{display:none;align-items:center;gap:14px;margin-top:20px;padding:16px 20px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:12px}
+        .file-info.visible{display:flex}
+        .file-icon-sm{width:40px;height:40px;background:rgba(99,102,241,.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+        .file-details{flex:1;text-align:left}
+        .file-name{font-size:14px;font-weight:500;color:#e0e0e0}
+        .file-size{font-size:12px;color:#666;margin-top:2px}
+        .file-remove{background:none;border:none;color:#666;font-size:18px;cursor:pointer;padding:4px;transition:color .2s}
+        .file-remove:hover{color:#ef4444}
+        .submit-btn{display:none;width:100%;margin-top:20px;padding:16px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;transition:all .3s;font-family:'Inter',sans-serif}
+        .submit-btn.visible{display:block}
+        .submit-btn:hover{transform:translateY(-1px);box-shadow:0 8px 30px rgba(99,102,241,.4)}
+        .features{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:800px;margin:0 auto 80px;padding:0 24px}
+        .feature-card{padding:28px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:16px;text-align:center}
+        .feature-icon{font-size:28px;margin-bottom:14px}
+        .feature-title{font-size:15px;font-weight:600;color:#e0e0e0;margin-bottom:8px}
+        .feature-desc{font-size:13px;color:#666;line-height:1.5}
+        @media(max-width:640px){nav{padding:16px 20px}h1{font-size:32px}.hero{padding:60px 20px 40px}.features{grid-template-columns:1fr}.drop-zone{padding:40px 24px}}
+    </style>
+</head>
+<body>
+    <div class="bg-glow"></div>
+    <div class="bg-glow-2"></div>
+    <nav>
+        <a href="/" class="logo"><div class="logo-icon">AI</div>DeepScan</a>
+        <ul class="nav-links">
+            <li><a href="/">Detect</a></li>
+            <li><a href="#">About</a></li>
+            <li><a href="#">API</a></li>
+        </ul>
+    </nav>
+    <section class="hero">
+        <div class="badge"><span class="badge-dot"></span>Powered by XceptionNet</div>
+        <h1>Detect AI-Generated Videos Instantly</h1>
+        <p class="subtitle">Upload any video and our deep learning model will analyze it frame-by-frame to determine if it was created by AI or captured in the real world.</p>
+    </section>
+    <div class="upload-area">
+        <form action="/upload" method="post" enctype="multipart/form-data" id="uploadForm">
+            <div class="drop-zone" id="dropZone">
+                <div class="drop-icon">&#x1F3AC;</div>
+                <p class="drop-text">Drag & drop your video here or <strong>browse</strong></p>
+                <p class="drop-hint">Supports MP4, MOV, AVI up to 100MB</p>
+            </div>
+            <input type="file" name="video" accept="video/*" required class="file-input" id="fileInput">
+            <div class="file-info" id="fileInfo">
+                <div class="file-icon-sm">&#x1F4F9;</div>
+                <div class="file-details">
+                    <div class="file-name" id="fileName"></div>
+                    <div class="file-size" id="fileSize"></div>
+                </div>
+                <button type="button" class="file-remove" id="fileRemove">&times;</button>
+            </div>
+            <button type="submit" class="submit-btn" id="submitBtn">Analyze Video</button>
+        </form>
+    </div>
+    <div class="features">
+        <div class="feature-card"><div class="feature-icon">&#x1F9E0;</div><div class="feature-title">Deep Analysis</div><div class="feature-desc">XceptionNet examines spatial artifacts invisible to the human eye</div></div>
+        <div class="feature-card"><div class="feature-icon">&#x1F3AF;</div><div class="feature-title">Frame-by-Frame</div><div class="feature-desc">Samples multiple frames for robust, consistent classification</div></div>
+        <div class="feature-card"><div class="feature-icon">&#x1F504;</div><div class="feature-title">Self-Improving</div><div class="feature-desc">User feedback continuously refines model accuracy over time</div></div>
+    </div>
+    <script>
+        const dropZone=document.getElementById('dropZone'),fileInput=document.getElementById('fileInput'),fileInfo=document.getElementById('fileInfo'),fName=document.getElementById('fileName'),fSize=document.getElementById('fileSize'),fileRemove=document.getElementById('fileRemove'),submitBtn=document.getElementById('submitBtn');
+        dropZone.addEventListener('click',()=>fileInput.click());
+        dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('dragover')});
+        dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('dragover');if(e.dataTransfer.files.length){fileInput.files=e.dataTransfer.files;showFile(e.dataTransfer.files[0])}});
+        fileInput.addEventListener('change',()=>{if(fileInput.files.length)showFile(fileInput.files[0])});
+        function showFile(f){fName.textContent=f.name;fSize.textContent=formatSize(f.size);fileInfo.classList.add('visible');submitBtn.classList.add('visible');dropZone.style.display='none'}
+        fileRemove.addEventListener('click',()=>{fileInput.value='';fileInfo.classList.remove('visible');submitBtn.classList.remove('visible');dropZone.style.display=''});
+        function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
+        document.getElementById('uploadForm').addEventListener('submit',function(){submitBtn.textContent='Analyzing...';submitBtn.disabled=true;submitBtn.style.opacity='.7'});
+    </script>
+</body>
+</html>

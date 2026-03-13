@@ -1,0 +1,10 @@
+Flask
+tensorflow
+opencv-python
+numpy
+pandas
+scikit-learn
+moviepy
+requests
+werkzeug
+gunicorn

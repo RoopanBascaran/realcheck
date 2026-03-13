@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Classification Result</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Inter',sans-serif;background:#0a0a0f;color:#e0e0e0;min-height:100vh;display:flex;flex-direction:column;align-items:center}
+        .bg-glow{position:fixed;top:-40%;left:-20%;width:60%;height:80%;background:radial-gradient(circle,rgba(99,102,241,.15) 0%,transparent 70%);pointer-events:none;z-index:0}
+        nav{width:100%;display:flex;align-items:center;justify-content:space-between;padding:20px 48px;border-bottom:1px solid rgba(255,255,255,.06);backdrop-filter:blur(20px);background:rgba(10,10,15,.8);position:relative;z-index:10}
+        .logo{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700;color:#fff;text-decoration:none}
+        .logo-icon{width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#a855f7);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff}
+        .container{position:relative;z-index:1;max-width:560px;margin:80px auto;padding:40px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:20px;text-align:center}
+        h1{font-size:28px;font-weight:700;margin-bottom:12px;background:linear-gradient(to right,#fff,#a5b4fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+        .result-label{font-size:15px;color:#888;margin-bottom:20px}
+        .classification{display:inline-block;padding:12px 32px;border-radius:12px;font-size:22px;font-weight:700;margin-bottom:36px}
+        .classification.real{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#4ade80}
+        .classification.ai{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#f87171}
+        h3{font-size:16px;font-weight:600;margin-bottom:16px;color:#e0e0e0}
+        .radio-group{display:flex;justify-content:center;gap:24px;margin-bottom:24px}
+        .radio-group label{display:flex;align-items:center;gap:8px;font-size:14px;color:#aaa;cursor:pointer}
+        .radio-group input[type="radio"]{accent-color:#6366f1}
+        .submit-btn{width:100%;padding:14px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;transition:all .3s;font-family:'Inter',sans-serif}
+        .submit-btn:hover{transform:translateY(-1px);box-shadow:0 8px 30px rgba(99,102,241,.4)}
+        .back-link{display:inline-block;margin-top:24px;color:#a5b4fc;text-decoration:none;font-size:14px;font-weight:500;transition:color .2s}
+        .back-link:hover{color:#fff}
+    </style>
+</head>
+<body>
+    <div class="bg-glow"></div>
+    <nav>
+        <a href="/" class="logo"><div class="logo-icon">AI</div>DeepScan</a>
+    </nav>
+    <div class="container">
+        <h1>Classification Result</h1>
+        <p class="result-label">Your video has been classified as:</p>
+        <div class="classification {{ 'ai' if classification == 'AI-generated' else 'real' }}">{{ classification }}</div>
+
+        <h3>Was this correct?</h3>
+        <form action="{{ url_for('feedback') }}" method="post">
+            <input type="hidden" name="video_id" value="{{ video_id }}">
+            <div class="radio-group">
+                <label><input type="radio" name="user_feedback" value="correct" required> Yes</label>
+                <label><input type="radio" name="user_feedback" value="incorrect"> No</label>
+            </div>
+            <button type="submit" class="submit-btn">Submit Feedback</button>
+        </form>
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Upload another video</a>
+    </div>
+</body>
+</html>

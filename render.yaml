@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ai-video-classifier
+    runtime: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      apt-get update && apt-get install -y libgl1-mesa-glx
+    startCommand: gunicorn app:app --bind 0.0.0.0:10000 --timeout 120 --workers 2
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10"
