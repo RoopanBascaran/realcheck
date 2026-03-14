@@ -7,7 +7,7 @@ services:
       pip install -r requirements.txt
       apt-get update && apt-get install -y libgl1
       python -c "from tensorflow.keras.applications import Xception; Xception(weights='imagenet', include_top=False, input_shape=(299, 299, 3))"
-    startCommand: gunicorn app:app --bind 0.0.0.0:10000 --timeout 300 --workers 1
+    startCommand: gunicorn app:app --bind 0.0.0.0:10000 --timeout 300 --workers 1 --preload
     healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
