@@ -322,18 +322,13 @@ def handle_feedback_reply(sender_id, text):
         label = prediction
         collect_feedback(video_id, label)
         pending_feedback.pop(sender_id, None)
-        count = get_feedback_count()
-        send_instagram_reply(sender_id, f"Thanks for confirming! Feedback #{count} saved. Send me another video anytime!")
+        send_instagram_reply(sender_id, "Thanks for confirming! Send me another video anytime.")
 
     elif text in ('NO', 'N', 'WRONG', 'INCORRECT'):
         label = 'Real' if prediction == 'AI-generated' else 'AI-generated'
         collect_feedback(video_id, label)
         pending_feedback.pop(sender_id, None)
-        count = get_feedback_count()
-        send_instagram_reply(
-            sender_id,
-            f"Got it, marking this as {label}. Feedback #{count} saved. Send me another video anytime!"
-        )
+        send_instagram_reply(sender_id, "Thanks for the correction! Send me another video anytime.")
 
     else:
         send_instagram_reply(sender_id, "Please reply YES if my prediction was correct, or NO if it was wrong.")
@@ -346,13 +341,10 @@ def handle_feedback_reply(sender_id, text):
     count = get_feedback_count()
     if count > 0 and count % 5 == 0:
         logger.info(f'Reached {count} feedbacks, triggering retraining in background...')
-        send_instagram_reply(sender_id, f"Training on {count} videos in the background...")
 
         def on_train_done(success):
             if success:
-                send_instagram_reply(sender_id, "Model retrained successfully! I should be smarter now.")
-            else:
-                send_instagram_reply(sender_id, "Training skipped — need both AI and Real samples.")
+                send_instagram_reply(sender_id, "I just learned from your feedback! I should be more accurate now.")
 
         retrain_model_async(callback=on_train_done)
 
