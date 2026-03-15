@@ -67,6 +67,38 @@ def privacy():
     <p>Contact: roopan@check4real.com</p>''', 200
 
 
+# Debug endpoint to test outbound connectivity
+@app.route('/debug/network')
+def debug_network():
+    import socket
+    results = {}
+
+    # Check resolv.conf
+    try:
+        with open('/etc/resolv.conf', 'r') as f:
+            results['resolv_conf'] = f.read()
+    except Exception as e:
+        results['resolv_conf'] = str(e)
+
+    # Test DNS resolution for various hosts
+    for host in ['graph.instagram.com', 'graph.facebook.com', 'google.com', 'api.github.com']:
+        try:
+            ip = socket.gethostbyname(host)
+            results[f'dns_{host}'] = ip
+        except Exception as e:
+            results[f'dns_{host}'] = str(e)
+
+    # Test HTTP connectivity
+    for url in ['https://graph.instagram.com', 'https://google.com']:
+        try:
+            resp = requests.get(url, timeout=5)
+            results[f'http_{url}'] = resp.status_code
+        except Exception as e:
+            results[f'http_{url}'] = str(e)
+
+    return jsonify(results)
+
+
 # Instagram Webhook verification (GET)
 @app.route('/webhook', methods=['GET'])
 def webhook_verify():
