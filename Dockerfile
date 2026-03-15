@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y \
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
+    PATH=/home/user/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1
 
 WORKDIR $HOME/app
 
@@ -23,4 +24,4 @@ COPY --chown=user:user . .
 
 EXPOSE 7860
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--timeout", "300", "--workers", "1"]
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--timeout", "300", "--workers", "1", "--log-level", "info", "--access-logfile", "-", "--error-logfile", "-"]

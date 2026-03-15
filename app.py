@@ -16,6 +16,8 @@ UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+logger.info('Flask app initialized successfully')
+
 model = None
 def get_model():
     global model
