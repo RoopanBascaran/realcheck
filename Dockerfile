@@ -3,9 +3,8 @@ FROM python:3.10-slim
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/* \
-    && echo "nameserver 8.8.8.8" > /etc/resolv.conf \
-    && echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+    gosu \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 user
 USER user
@@ -24,6 +23,11 @@ RUN python -c "from tensorflow.keras.applications import Xception; Xception(weig
 
 COPY --chown=user:user . .
 
+# Switch to root for entrypoint (configures DNS, then drops to user)
+USER root
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 7860
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--timeout", "300", "--workers", "1", "--log-level", "info", "--access-logfile", "-", "--error-logfile", "-"]
+ENTRYPOINT ["/entrypoint.sh"]
