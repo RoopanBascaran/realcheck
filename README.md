@@ -5,8 +5,9 @@ colorFrom: red
 colorTo: blue
 sdk: docker
 pinned: false
+app_port: 7860
 ---
 
 # AI Video Classifier
 
-This project is an AI Video Classifier that allows users to upload Instagram videos and classifies them as either AI-generated or real using the XceptionNet model. The application also incorporates user feedback to improve the model's accuracy over time.
+Detect AI-generated videos via frame-by-frame deep learning analysis using the Xception model. Supports direct uploads and Instagram DM integration.
