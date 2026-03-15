@@ -219,9 +219,10 @@ def webhook_receive():
                     logger.info(f'Unknown attachment types: {[a.get("type") for a in attachments]}')
                     send_instagram_reply(sender_id, "I received your message but couldn't find a video. Please send a reel directly.")
                 else:
-                    # Check if this is a feedback reply (YES/NO)
-                    text = message.get('text', '').strip().upper()
-                    if sender_id in pending_feedback and pending_feedback[sender_id].get('awaiting_feedback'):
+                    # Check for quick reply button tap or text feedback (YES/NO)
+                    quick_reply = message.get('quick_reply', {}).get('payload', '')
+                    text = quick_reply or message.get('text', '').strip().upper()
+                    if sender_id in pending_feedback and pending_feedback[sender_id].get('awaiting_feedback') and text:
                         handle_feedback_reply(sender_id, text)
                     else:
                         send_instagram_reply(
@@ -248,8 +249,9 @@ def webhook_receive():
                         if video_url:
                             handle_video_message(sender_id, video_url)
                         else:
-                            text = message.get('text', '').strip().upper()
-                            if sender_id in pending_feedback and pending_feedback[sender_id].get('awaiting_feedback'):
+                            quick_reply = message.get('quick_reply', {}).get('payload', '')
+                            text = quick_reply or message.get('text', '').strip().upper()
+                            if sender_id in pending_feedback and pending_feedback[sender_id].get('awaiting_feedback') and text:
                                 handle_feedback_reply(sender_id, text)
                             else:
                                 send_instagram_reply(
@@ -296,7 +298,11 @@ def handle_video_message(sender_id, video_url):
 
         send_instagram_reply(
             sender_id,
-            f"Result: This video appears to be {result}.\n\nWas this correct? Reply YES or NO to help me learn!"
+            f"Result: This video appears to be {result}.\n\nWas this correct?",
+            quick_replies=[
+                {'content_type': 'text', 'title': 'YES ✅', 'payload': 'YES'},
+                {'content_type': 'text', 'title': 'NO ❌', 'payload': 'NO'}
+            ]
         )
 
     except Exception as e:
@@ -349,15 +355,18 @@ def handle_feedback_reply(sender_id, text):
         retrain_model_async(callback=on_train_done)
 
 
-def send_instagram_reply(recipient_id, text):
+def send_instagram_reply(recipient_id, text, quick_replies=None):
     url = f'https://graph.instagram.com/v21.0/me/messages'
     headers = {
         'Authorization': f'Bearer {INSTAGRAM_ACCESS_TOKEN}',
         'Content-Type': 'application/json'
     }
+    message = {'text': text}
+    if quick_replies:
+        message['quick_replies'] = quick_replies
     payload = {
         'recipient': {'id': recipient_id},
-        'message': {'text': text}
+        'message': message
     }
     logger.info(f'Sending reply to {recipient_id}: {text[:50]}...')
     resp = requests.post(url, json=payload, headers=headers, timeout=30)
