@@ -348,11 +348,7 @@ def handle_feedback_reply(sender_id, text):
     if count > 0 and count % 5 == 0:
         logger.info(f'Reached {count} feedbacks, triggering retraining in background...')
 
-        def on_train_done(success):
-            if success:
-                send_instagram_reply(sender_id, "I just learned from your feedback! I should be more accurate now.")
-
-        retrain_model_async(callback=on_train_done)
+        retrain_model_async()
 
 
 def send_instagram_reply(recipient_id, text, quick_replies=None):
