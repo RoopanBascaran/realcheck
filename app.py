@@ -1,12 +1,46 @@
 from flask import Flask, request, render_template, jsonify
 from werkzeug.utils import secure_filename
 import os
+import socket
 import requests
 import logging
 import tempfile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Workaround: HF Spaces blocks DNS for Meta/Facebook domains.
+# Use Google DNS-over-HTTPS as fallback resolver.
+_original_getaddrinfo = socket.getaddrinfo
+
+def _resolve_via_doh(hostname):
+    """Resolve hostname using Google DNS-over-HTTPS."""
+    try:
+        import urllib.request
+        import json
+        url = f'https://dns.google/resolve?name={hostname}&type=A'
+        req = urllib.request.Request(url, headers={'Accept': 'application/dns-json'})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        for answer in data.get('Answer', []):
+            if answer.get('type') == 1:
+                logger.info(f'DoH resolved {hostname} -> {answer["data"]}')
+                return answer['data']
+    except Exception as e:
+        logger.error(f'DoH resolution failed for {hostname}: {e}')
+    return None
+
+def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    try:
+        return _original_getaddrinfo(host, port, family, type, proto, flags)
+    except socket.gaierror:
+        ip = _resolve_via_doh(host)
+        if ip:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, port if isinstance(port, int) and port else 443))]
+        raise
+
+socket.getaddrinfo = _patched_getaddrinfo
+logger.info('DNS fallback via Google DoH enabled')
 
 INSTAGRAM_ACCESS_TOKEN = os.environ.get('INSTAGRAM_ACCESS_TOKEN')
 WEBHOOK_VERIFY_TOKEN = os.environ.get('WEBHOOK_VERIFY_TOKEN', 'check4real_verify')
