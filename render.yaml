@@ -6,7 +6,7 @@ services:
     buildCommand: |
       pip install -r requirements.txt
       KERAS_HOME=/opt/render/project/src/.keras python -c "from tensorflow.keras.applications import Xception; Xception(weights='imagenet', include_top=False, input_shape=(299, 299, 3))"
-    startCommand: KERAS_HOME=/opt/render/project/src/.keras gunicorn app:app --bind 0.0.0.0:10000 --timeout 300 --workers 1 --preload
+    startCommand: KERAS_HOME=/opt/render/project/src/.keras gunicorn app:app --bind 0.0.0.0:10000 --timeout 300 --workers 1
     healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
