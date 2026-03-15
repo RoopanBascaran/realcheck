@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Pre-download Nahrawy/AIorNot model at build time
-RUN python -c "from transformers import AutoImageProcessor, AutoModelForImageClassification; AutoImageProcessor.from_pretrained('Nahrawy/AIorNot'); AutoModelForImageClassification.from_pretrained('Nahrawy/AIorNot')"
+RUN python -c "from transformers import ViTImageProcessor, AutoModelForImageClassification; ViTImageProcessor.from_pretrained('Nahrawy/AIorNot'); AutoModelForImageClassification.from_pretrained('Nahrawy/AIorNot')"
 
 COPY --chown=user:user . .
 

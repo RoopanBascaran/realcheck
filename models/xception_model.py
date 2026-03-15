@@ -1,4 +1,4 @@
-from transformers import AutoImageProcessor, AutoModelForImageClassification
+from transformers import ViTImageProcessor, AutoModelForImageClassification
 from PIL import Image
 import numpy as np
 import cv2
@@ -14,7 +14,7 @@ MODEL_NAME = 'Nahrawy/AIorNot'
 class AIDetector:
     def __init__(self):
         logger.info(f'Loading model: {MODEL_NAME}')
-        self.processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
+        self.processor = ViTImageProcessor.from_pretrained(MODEL_NAME)
         self.model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
         self.model.eval()
         logger.info('Model loaded successfully')
