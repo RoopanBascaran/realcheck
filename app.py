@@ -44,6 +44,8 @@ logger.info('DNS fallback via Google DoH enabled')
 
 INSTAGRAM_ACCESS_TOKEN = os.environ.get('INSTAGRAM_ACCESS_TOKEN')
 WEBHOOK_VERIFY_TOKEN = os.environ.get('WEBHOOK_VERIFY_TOKEN', 'check4real_verify')
+# Only process webhooks for the bot's own Instagram account (check.4.real)
+INSTAGRAM_PAGE_ID = os.environ.get('INSTAGRAM_PAGE_ID', '17841440093442300')
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'static/uploads'
@@ -177,6 +179,10 @@ def webhook_receive():
 
     if data and data.get('object') == 'instagram':
         for entry in data.get('entry', []):
+            # Only process webhooks for our bot account, ignore others (e.g. demo.influencer)
+            if str(entry.get('id')) != INSTAGRAM_PAGE_ID:
+                logger.info(f'Skipping webhook for non-bot account: {entry.get("id")}')
+                continue
             # Handle messaging events
             for messaging in entry.get('messaging', []):
                 sender_id = messaging.get('sender', {}).get('id')
