@@ -106,6 +106,11 @@ def webhook_receive():
                 if not sender_id or not message:
                     continue
 
+                # Skip echo messages (messages sent by us)
+                if message.get('is_echo'):
+                    logger.info(f'Skipping echo message from {sender_id}')
+                    continue
+
                 logger.info(f'Message from {sender_id}: {message}')
 
                 attachments = message.get('attachments', [])
@@ -186,7 +191,10 @@ def handle_video_message(sender_id, video_url):
 
     except Exception as e:
         logger.error(f'Error processing video: {e}')
-        send_instagram_reply(sender_id, "Sorry, I couldn't process that video. Please try again.")
+        try:
+            send_instagram_reply(sender_id, "Sorry, I couldn't process that video. Please try again.")
+        except Exception as reply_err:
+            logger.error(f'Failed to send error reply: {reply_err}')
 
 
 def send_instagram_reply(recipient_id, text):
@@ -199,9 +207,12 @@ def send_instagram_reply(recipient_id, text):
         'recipient': {'id': recipient_id},
         'message': {'text': text}
     }
+    logger.info(f'Sending reply to {recipient_id}: {text[:50]}...')
     resp = requests.post(url, json=payload, headers=headers, timeout=30)
     if resp.status_code != 200:
         logger.error(f'Failed to send message: {resp.status_code} {resp.text}')
+    else:
+        logger.info(f'Reply sent successfully')
     return resp
 
 
