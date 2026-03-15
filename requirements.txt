@@ -1,10 +1,9 @@
 Flask
-tensorflow
+transformers
 opencv-python-headless
 numpy
-pandas
+pillow
 scikit-learn
-moviepy
 requests
 werkzeug
 gunicorn

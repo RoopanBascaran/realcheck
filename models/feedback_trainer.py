@@ -13,12 +13,9 @@ FEEDBACK_INDEX = os.path.join(FEEDBACK_DIR, 'index.json')
 HF_DATA_REPO = os.environ.get('HF_DATA_REPO', 'Karen-AI/realcheck-data')
 HF_TOKEN = os.environ.get('HF_TOKEN')
 
-WEIGHTS_PATH = os.path.join('models', 'weights', 'xception_ai_detector.h5')
-
 
 def _ensure_dirs():
     os.makedirs(FEEDBACK_DIR, exist_ok=True)
-    os.makedirs(os.path.dirname(WEIGHTS_PATH), exist_ok=True)
 
 
 def _upload_to_hf(local_path, repo_path):
@@ -55,9 +52,8 @@ def _download_from_hf(repo_path, local_path):
             repo_type='dataset',
             token=HF_TOKEN,
         )
-        # hf_hub_download returns the cached path — copy to our local path
         import shutil
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        os.makedirs(os.path.dirname(local_path) or '.', exist_ok=True)
         shutil.copy2(downloaded, local_path)
         logger.info(f'Downloaded {repo_path} -> {local_path}')
         return True
@@ -67,13 +63,12 @@ def _download_from_hf(repo_path, local_path):
 
 
 def restore_from_hf():
-    """Download feedback data and classifier from HF dataset repo on startup.
-    Does NOT import TensorFlow — only downloads files."""
+    """Download feedback data and classifier from HF dataset repo on startup."""
     _ensure_dirs()
 
     _download_from_hf('index.json', FEEDBACK_INDEX)
-    _download_from_hf('features.npz', os.path.join(FEEDBACK_DIR, 'features.npz'))
-    _download_from_hf('classifier.pkl', os.path.join(FEEDBACK_DIR, 'classifier.pkl'))
+    _download_from_hf('features_v2.npz', os.path.join(FEEDBACK_DIR, 'features_v2.npz'))
+    _download_from_hf('classifier_v2.pkl', os.path.join(FEEDBACK_DIR, 'classifier_v2.pkl'))
 
     count = get_feedback_count()
     if count > 0:
@@ -96,7 +91,7 @@ def _save_index(data):
 
 def _load_features():
     """Load saved feature vectors."""
-    path = os.path.join(FEEDBACK_DIR, 'features.npz')
+    path = os.path.join(FEEDBACK_DIR, 'features_v2.npz')
     if os.path.exists(path):
         data = np.load(path, allow_pickle=True)
         return dict(data)
@@ -105,7 +100,7 @@ def _load_features():
 
 def _save_features(features_dict):
     """Save feature vectors to disk."""
-    path = os.path.join(FEEDBACK_DIR, 'features.npz')
+    path = os.path.join(FEEDBACK_DIR, 'features_v2.npz')
     np.savez_compressed(path, **features_dict)
 
 
@@ -113,48 +108,34 @@ def _persist_to_hf():
     """Upload all data to HF in background (non-blocking)."""
     def _do_upload():
         _upload_to_hf(FEEDBACK_INDEX, 'index.json')
-        features_path = os.path.join(FEEDBACK_DIR, 'features.npz')
+        features_path = os.path.join(FEEDBACK_DIR, 'features_v2.npz')
         if os.path.exists(features_path):
-            _upload_to_hf(features_path, 'features.npz')
-        if os.path.exists(WEIGHTS_PATH):
-            _upload_to_hf(WEIGHTS_PATH, 'xception_ai_detector.h5')
+            _upload_to_hf(features_path, 'features_v2.npz')
+        clf_path = os.path.join(FEEDBACK_DIR, 'classifier_v2.pkl')
+        if os.path.exists(clf_path):
+            _upload_to_hf(clf_path, 'classifier_v2.pkl')
 
     thread = threading.Thread(target=_do_upload, daemon=True)
     thread.start()
 
 
-def save_video_features(video_path, video_id):
-    """Extract Xception features from video and save as compact feature vectors."""
-    from models.xception_model import extract_frames
-    from tensorflow.keras.applications.xception import preprocess_input
-    from tensorflow.keras.applications import Xception
-    import cv2
-
+def save_video_features(video_path, video_id, detector=None):
+    """Extract features from video using the provided model."""
     _ensure_dirs()
-    frames = extract_frames(video_path, max_frames=8)
-    if not frames:
+
+    if detector is None:
+        from models.xception_model import load_model
+        detector = load_model()
+
+    feature_vectors = detector.extract_features(video_path)
+    if feature_vectors is None:
         return False
 
-    # Preprocess frames
-    processed = []
-    for frame in frames:
-        img = cv2.resize(frame, (299, 299))
-        img = np.array(img, dtype=np.float32)
-        img = preprocess_input(img)
-        processed.append(img)
-
-    processed = np.array(processed)
-
-    # Extract compact feature vectors (2048-dim) instead of saving full frames
-    extractor = Xception(weights='imagenet', include_top=False, pooling='avg')
-    feature_vectors = extractor.predict(processed, verbose=0)  # shape: (N, 2048)
-
-    # Save to features dict (each video is ~65KB instead of ~17MB)
     features_dict = _load_features()
     features_dict[video_id] = feature_vectors
     _save_features(features_dict)
 
-    logger.info(f'Saved {len(frames)} feature vectors for video {video_id}')
+    logger.info(f'Saved {len(feature_vectors)} feature vectors for video {video_id}')
     return True
 
 
@@ -198,7 +179,7 @@ def retrain_model_async(callback=None):
 
 
 def _retrain_model():
-    """Fine-tune a logistic regression on Xception features (lightweight)."""
+    """Train a logistic regression on model features."""
     from sklearn.linear_model import LogisticRegression
     import pickle
 
@@ -221,8 +202,7 @@ def _retrain_model():
             continue
 
         label = 1 if entry['label'] == 'AI-generated' else 0
-        vectors = features_dict[video_id]  # shape: (N, 2048)
-        # Average frame features into one vector per video
+        vectors = features_dict[video_id]
         avg_vector = np.mean(vectors, axis=0)
         all_features.append(avg_vector)
         all_labels.append(label)
@@ -231,7 +211,6 @@ def _retrain_model():
         logger.info('Not enough valid samples to train')
         return False
 
-    # Check we have both classes
     unique_labels = set(all_labels)
     if len(unique_labels) < 2:
         logger.info(f'Need both AI-generated and Real samples, only have: {unique_labels}')
@@ -243,21 +222,17 @@ def _retrain_model():
     logger.info(f'Training on {len(X)} videos')
     logger.info(f'Label distribution: {sum(y)} AI-generated, {len(y) - sum(y)} Real')
 
-    # Train a lightweight classifier on top of Xception features
     clf = LogisticRegression(max_iter=1000, C=1.0)
     clf.fit(X, y)
 
-    # Save classifier
-    clf_path = os.path.join(FEEDBACK_DIR, 'classifier.pkl')
+    clf_path = os.path.join(FEEDBACK_DIR, 'classifier_v2.pkl')
     with open(clf_path, 'wb') as f:
         pickle.dump(clf, f)
 
-    # Calculate training accuracy
     accuracy = clf.score(X, y)
     logger.info(f'Classifier trained with accuracy: {accuracy:.2f}')
 
-    # Persist everything to HF
-    _upload_to_hf(clf_path, 'classifier.pkl')
+    _upload_to_hf(clf_path, 'classifier_v2.pkl')
     _persist_to_hf()
 
     return True
@@ -267,7 +242,7 @@ def predict_with_feedback_model(feature_vector):
     """Predict using the feedback-trained classifier if available."""
     import pickle
 
-    clf_path = os.path.join(FEEDBACK_DIR, 'classifier.pkl')
+    clf_path = os.path.join(FEEDBACK_DIR, 'classifier_v2.pkl')
     if not os.path.exists(clf_path):
         return None
 

@@ -16,10 +16,11 @@ WORKDIR $HOME/app
 
 COPY --chown=user:user requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-download Xception weights at build time
-RUN python -c "from tensorflow.keras.applications import Xception; Xception(weights='imagenet', include_top=False, input_shape=(299, 299, 3))"
+# Pre-download Nahrawy/AIorNot model at build time
+RUN python -c "from transformers import AutoImageProcessor, AutoModelForImageClassification; AutoImageProcessor.from_pretrained('Nahrawy/AIorNot'); AutoModelForImageClassification.from_pretrained('Nahrawy/AIorNot')"
 
 COPY --chown=user:user . .
 

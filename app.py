@@ -280,11 +280,11 @@ def handle_video_message(sender_id, video_url):
         # Classify the video
         result = classify_video(tmp_path)
 
-        # Save frames for potential feedback training
+        # Save features for feedback training (reuse loaded model)
         import uuid
         video_id = uuid.uuid4().hex[:12]
         from models.feedback_trainer import save_video_features
-        save_video_features(tmp_path, video_id)
+        save_video_features(tmp_path, video_id, detector=get_model())
 
         # Clean up temp video
         os.unlink(tmp_path)

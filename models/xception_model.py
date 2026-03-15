@@ -1,79 +1,69 @@
-from tensorflow.keras.applications import Xception
-from tensorflow.keras.applications.xception import preprocess_input
-from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
-from tensorflow.keras.models import Model
+from transformers import AutoImageProcessor, AutoModelForImageClassification
+from PIL import Image
 import numpy as np
 import cv2
 import os
+import torch
+import logging
 
-WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), 'weights', 'xception_ai_detector.h5')
+logger = logging.getLogger(__name__)
 
-
-def build_model():
-    """Build Xception-based binary classifier for AI vs Real detection."""
-    base_model = Xception(weights='imagenet', include_top=False, input_shape=(299, 299, 3))
-
-    # Freeze early layers, fine-tune last 20
-    for layer in base_model.layers[:-20]:
-        layer.trainable = False
-    for layer in base_model.layers[-20:]:
-        layer.trainable = True
-
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dropout(0.5)(x)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(0.3)(x)
-    output = Dense(1, activation='sigmoid')(x)
-
-    model = Model(inputs=base_model.input, outputs=output)
-    return model
+MODEL_NAME = 'Nahrawy/AIorNot'
 
 
-class XceptionModel:
+class AIDetector:
     def __init__(self):
-        self.model = build_model()
-        # Feature extractor for feedback classifier (reuses imagenet weights, no extra memory)
-        self._feature_extractor = Xception(weights='imagenet', include_top=False, pooling='avg')
-        if os.path.exists(WEIGHTS_PATH):
-            self.model.load_weights(WEIGHTS_PATH)
-            print(f'Loaded trained weights from {WEIGHTS_PATH}')
-        else:
-            print('WARNING: No trained weights found. Will use feedback classifier if available.')
-
-    def preprocess_video(self, video_path):
-        frames = extract_frames(video_path)
-        processed_frames = []
-        for frame in frames:
-            img = cv2.resize(frame, (299, 299))
-            img_array = np.array(img, dtype=np.float32)
-            img_array = preprocess_input(img_array)
-            processed_frames.append(img_array)
-        return np.array(processed_frames)
-
-    def predict(self, video_data):
-        predictions = self.model.predict(video_data, verbose=0)
-        avg_score = np.mean(predictions)
-        return avg_score
+        logger.info(f'Loading model: {MODEL_NAME}')
+        self.processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
+        self.model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
+        self.model.eval()
+        logger.info('Model loaded successfully')
 
     def classify(self, video_path):
-        video_data = self.preprocess_video(video_path)
-        if len(video_data) == 0:
+        frames = extract_frames(video_path)
+        if not frames:
             return 'Real'
 
-        # Use feedback-trained classifier if available (more accurate than untrained Xception)
-        try:
-            from models.feedback_trainer import predict_with_feedback_model
-            features = self._feature_extractor.predict(video_data, verbose=0)
-            result = predict_with_feedback_model(features)
-            if result:
-                return result[0]  # label
-        except Exception:
-            pass
+        scores = []
+        for frame in frames:
+            img = Image.fromarray(frame)
+            inputs = self.processor(images=img, return_tensors='pt')
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            probs = torch.softmax(outputs.logits, dim=1)[0]
 
-        # Fallback to base Xception model
-        score = self.predict(video_data)
-        return 'AI-generated' if score > 0.5 else 'Real'
+            # Get label mapping
+            labels = self.model.config.id2label
+            ai_score = 0.0
+            for idx, label_name in labels.items():
+                if 'ai' in label_name.lower() or 'fake' in label_name.lower() or 'artificial' in label_name.lower():
+                    ai_score = probs[idx].item()
+                    break
+
+            scores.append(ai_score)
+
+        avg_score = np.mean(scores)
+        logger.info(f'Classification: avg_score={avg_score:.3f} from {len(scores)} frames')
+        return 'AI-generated' if avg_score > 0.5 else 'Real'
+
+    def extract_features(self, video_path):
+        """Extract feature vectors from video frames for feedback training."""
+        frames = extract_frames(video_path, max_frames=8)
+        if not frames:
+            return None
+
+        all_features = []
+        for frame in frames:
+            img = Image.fromarray(frame)
+            inputs = self.processor(images=img, return_tensors='pt')
+            with torch.no_grad():
+                outputs = self.model(**inputs, output_hidden_states=True)
+            # Use last hidden state, averaged over patches, as feature vector
+            hidden = outputs.hidden_states[-1]  # (1, num_patches, hidden_dim)
+            feature = hidden.mean(dim=1).squeeze().numpy()  # (hidden_dim,)
+            all_features.append(feature)
+
+        return np.array(all_features)
 
 
 def extract_frames(video_path, max_frames=16):
@@ -99,19 +89,4 @@ def extract_frames(video_path, max_frames=16):
 
 
 def load_model():
-    return XceptionModel()
-
-
-def preprocess_video(video_path):
-    frames = extract_frames(video_path)
-    processed_frames = []
-    for frame in frames:
-        img = cv2.resize(frame, (299, 299))
-        img_array = np.array(img, dtype=np.float32)
-        img_array = preprocess_input(img_array)
-        processed_frames.append(img_array)
-    return np.array(processed_frames)
-
-
-def predict(model, video_data):
-    return model.predict(video_data)
+    return AIDetector()
