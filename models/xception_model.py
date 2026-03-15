@@ -44,7 +44,23 @@ class AIDetector:
 
         avg_score = np.mean(scores)
         logger.info(f'Classification: avg_score={avg_score:.3f} from {len(scores)} frames')
-        return 'AI-generated' if avg_score > 0.5 else 'Real'
+        base_result = 'AI-generated' if avg_score > 0.5 else 'Real'
+
+        # Check if feedback-trained classifier is available
+        try:
+            from models.feedback_trainer import predict_with_feedback_model
+            feature_vectors = self.extract_features(video_path)
+            if feature_vectors is not None:
+                fb_result = predict_with_feedback_model(feature_vectors)
+                if fb_result is not None:
+                    fb_label, fb_confidence = fb_result
+                    logger.info(f'Feedback model: {fb_label} ({fb_confidence:.2f}), Base model: {base_result} ({avg_score:.3f})')
+                    if fb_confidence > 0.7:
+                        return fb_label
+        except Exception as e:
+            logger.warning(f'Feedback model check failed: {e}')
+
+        return base_result
 
     def extract_features(self, video_path):
         """Extract feature vectors from video frames for feedback training."""
