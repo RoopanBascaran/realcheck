@@ -8,3 +8,4 @@ moviepy
 requests
 werkzeug
 gunicorn
+huggingface_hub

@@ -33,12 +33,13 @@ def build_model():
 class XceptionModel:
     def __init__(self):
         self.model = build_model()
+        # Feature extractor for feedback classifier (reuses imagenet weights, no extra memory)
+        self._feature_extractor = Xception(weights='imagenet', include_top=False, pooling='avg')
         if os.path.exists(WEIGHTS_PATH):
             self.model.load_weights(WEIGHTS_PATH)
             print(f'Loaded trained weights from {WEIGHTS_PATH}')
         else:
-            print('WARNING: No trained weights found. Predictions will be random.')
-            print(f'Run "python models/train.py" to train the model first.')
+            print('WARNING: No trained weights found. Will use feedback classifier if available.')
 
     def preprocess_video(self, video_path):
         frames = extract_frames(video_path)
@@ -59,6 +60,18 @@ class XceptionModel:
         video_data = self.preprocess_video(video_path)
         if len(video_data) == 0:
             return 'Real'
+
+        # Use feedback-trained classifier if available (more accurate than untrained Xception)
+        try:
+            from models.feedback_trainer import predict_with_feedback_model
+            features = self._feature_extractor.predict(video_data, verbose=0)
+            result = predict_with_feedback_model(features)
+            if result:
+                return result[0]  # label
+        except Exception:
+            pass
+
+        # Fallback to base Xception model
         score = self.predict(video_data)
         return 'AI-generated' if score > 0.5 else 'Real'
 

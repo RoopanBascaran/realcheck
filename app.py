@@ -50,6 +50,18 @@ UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Track conversation state for feedback flow
+# Maps sender_id -> {'video_id': str, 'prediction': str, 'awaiting_feedback': bool}
+pending_feedback = {}
+
+# Restore feedback data and classifier from HF dataset repo on startup
+# (does NOT import TensorFlow — just downloads files)
+try:
+    from models.feedback_trainer import restore_from_hf
+    restore_from_hf()
+except Exception as e:
+    logger.warning(f'Could not restore from HF: {e}')
+
 logger.info('Flask app initialized successfully')
 
 model = None
@@ -85,11 +97,12 @@ def classify_video(filepath):
 
 @app.route('/feedback', methods=['POST'])
 def feedback():
-    from models.feedback_trainer import collect_feedback, retrain_model
+    from models.feedback_trainer import collect_feedback, retrain_model_async, get_feedback_count
     user_feedback = request.form['user_feedback']
     video_id = request.form['video_id']
     collect_feedback(video_id, user_feedback)
-    retrain_model()
+    if get_feedback_count() % 5 == 0:
+        retrain_model_async()
     return 'Feedback received', 200
 
 @app.route('/privacy')
@@ -200,10 +213,15 @@ def webhook_receive():
                     logger.info(f'Unknown attachment types: {[a.get("type") for a in attachments]}')
                     send_instagram_reply(sender_id, "I received your message but couldn't find a video. Please send a reel directly.")
                 else:
-                    send_instagram_reply(
-                        sender_id,
-                        "Hi! Send me a reel or video and I'll check if it's AI-generated or real."
-                    )
+                    # Check if this is a feedback reply (YES/NO)
+                    text = message.get('text', '').strip().upper()
+                    if sender_id in pending_feedback and pending_feedback[sender_id].get('awaiting_feedback'):
+                        handle_feedback_reply(sender_id, text)
+                    else:
+                        send_instagram_reply(
+                            sender_id,
+                            "Hi! Send me a reel or video and I'll check if it's AI-generated or real."
+                        )
 
             # Handle changes-based events (alternative webhook format)
             for change in entry.get('changes', []):
@@ -224,10 +242,14 @@ def webhook_receive():
                         if video_url:
                             handle_video_message(sender_id, video_url)
                         else:
-                            send_instagram_reply(
-                                sender_id,
-                                "Hi! Send me a reel or video and I'll check if it's AI-generated or real."
-                            )
+                            text = message.get('text', '').strip().upper()
+                            if sender_id in pending_feedback and pending_feedback[sender_id].get('awaiting_feedback'):
+                                handle_feedback_reply(sender_id, text)
+                            else:
+                                send_instagram_reply(
+                                    sender_id,
+                                    "Hi! Send me a reel or video and I'll check if it's AI-generated or real."
+                                )
 
     return jsonify({'status': 'ok'}), 200
 
@@ -250,10 +272,26 @@ def handle_video_message(sender_id, video_url):
         # Classify the video
         result = classify_video(tmp_path)
 
-        # Clean up
+        # Save frames for potential feedback training
+        import uuid
+        video_id = uuid.uuid4().hex[:12]
+        from models.feedback_trainer import save_video_features
+        save_video_features(tmp_path, video_id)
+
+        # Clean up temp video
         os.unlink(tmp_path)
 
-        send_instagram_reply(sender_id, f"Result: This video appears to be {result}")
+        # Store state for feedback
+        pending_feedback[sender_id] = {
+            'video_id': video_id,
+            'prediction': result,
+            'awaiting_feedback': True
+        }
+
+        send_instagram_reply(
+            sender_id,
+            f"Result: This video appears to be {result}.\n\nWas this correct? Reply YES or NO to help me learn!"
+        )
 
     except Exception as e:
         logger.error(f'Error processing video: {e}')
@@ -261,6 +299,56 @@ def handle_video_message(sender_id, video_url):
             send_instagram_reply(sender_id, "Sorry, I couldn't process that video. Please try again.")
         except Exception as reply_err:
             logger.error(f'Failed to send error reply: {reply_err}')
+
+
+def handle_feedback_reply(sender_id, text):
+    """Process YES/NO feedback from user."""
+    from models.feedback_trainer import collect_feedback, retrain_model_async, get_feedback_count, _persist_to_hf
+
+    state = pending_feedback.get(sender_id)
+    if not state:
+        return
+
+    video_id = state['video_id']
+    prediction = state['prediction']
+
+    if text in ('YES', 'Y', 'CORRECT', 'RIGHT'):
+        label = prediction
+        collect_feedback(video_id, label)
+        pending_feedback.pop(sender_id, None)
+        count = get_feedback_count()
+        send_instagram_reply(sender_id, f"Thanks for confirming! Feedback #{count} saved. Send me another video anytime!")
+
+    elif text in ('NO', 'N', 'WRONG', 'INCORRECT'):
+        label = 'Real' if prediction == 'AI-generated' else 'AI-generated'
+        collect_feedback(video_id, label)
+        pending_feedback.pop(sender_id, None)
+        count = get_feedback_count()
+        send_instagram_reply(
+            sender_id,
+            f"Got it, marking this as {label}. Feedback #{count} saved. Send me another video anytime!"
+        )
+
+    else:
+        send_instagram_reply(sender_id, "Please reply YES if my prediction was correct, or NO if it was wrong.")
+        return
+
+    # Persist feedback to HF in background
+    _persist_to_hf()
+
+    # Retrain every 5 feedbacks (in background — won't block webhook)
+    count = get_feedback_count()
+    if count > 0 and count % 5 == 0:
+        logger.info(f'Reached {count} feedbacks, triggering retraining in background...')
+        send_instagram_reply(sender_id, f"Training on {count} videos in the background...")
+
+        def on_train_done(success):
+            if success:
+                send_instagram_reply(sender_id, "Model retrained successfully! I should be smarter now.")
+            else:
+                send_instagram_reply(sender_id, "Training skipped — need both AI and Real samples.")
+
+        retrain_model_async(callback=on_train_done)
 
 
 def send_instagram_reply(recipient_id, text):
