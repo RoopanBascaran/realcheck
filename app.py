@@ -56,6 +56,10 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Maps sender_id -> {'video_id': str, 'prediction': str, 'awaiting_feedback': bool}
 pending_feedback = {}
 
+# Deduplication: track processed message IDs to avoid duplicate processing
+processed_mids = set()
+MAX_PROCESSED_MIDS = 1000
+
 # Restore feedback data and classifier from HF dataset repo on startup
 # (does NOT import TensorFlow — just downloads files)
 try:
@@ -196,6 +200,15 @@ def webhook_receive():
                     logger.info(f'Skipping echo message from {sender_id}')
                     continue
 
+                # Deduplicate: skip already-processed messages
+                mid = message.get('mid', '')
+                if mid in processed_mids:
+                    logger.info(f'Skipping duplicate message: {mid[:30]}...')
+                    continue
+                processed_mids.add(mid)
+                if len(processed_mids) > MAX_PROCESSED_MIDS:
+                    processed_mids.clear()
+
                 logger.info(f'Message from {sender_id}: {message}')
 
                 attachments = message.get('attachments', [])
@@ -238,6 +251,14 @@ def webhook_receive():
                     sender_id = value.get('sender', {}).get('id')
                     message = value.get('message', {})
                     if sender_id:
+                        mid = message.get('mid', '')
+                        if mid and mid in processed_mids:
+                            logger.info(f'Skipping duplicate change message: {mid[:30]}...')
+                            continue
+                        if mid:
+                            processed_mids.add(mid)
+                            if len(processed_mids) > MAX_PROCESSED_MIDS:
+                                processed_mids.clear()
                         attachments = message.get('attachments', [])
                         video_url = None
                         for att in attachments:
