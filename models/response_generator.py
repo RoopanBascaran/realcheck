@@ -9,7 +9,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 HF_TOKEN = os.environ.get('HF_TOKEN')
-LLM_MODEL = 'meta-llama/Llama-3.2-3B-Instruct'
+# Models to try in order. Openly licensed models that work with HF free Inference API.
+LLM_MODELS = [
+    'HuggingFaceH4/zephyr-7b-beta',
+    'mistralai/Mistral-7B-Instruct-v0.3',
+    'google/gemma-2-2b-it',
+]
 
 # Template fallbacks — used if LLM fails or is unavailable
 ANALYZING_TEMPLATES = [
@@ -49,25 +54,37 @@ FEEDBACK_PROMPT = "\n\nwhat do you think? is this fake? 👇"
 
 
 def _call_llm(prompt, max_tokens=80):
-    """Call HF Inference API. Returns generated text or None on failure."""
+    """Call HF Inference API. Tries multiple models. Returns text or None on failure."""
     if not HF_TOKEN:
+        logger.warning('HF_TOKEN not set, using template fallback')
         return None
+
     try:
         from huggingface_hub import InferenceClient
-        client = InferenceClient(model=LLM_MODEL, token=HF_TOKEN, timeout=10)
-        response = client.chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=0.9,
-        )
-        text = response.choices[0].message.content.strip()
-        # Strip surrounding quotes if LLM wrapped the response
-        if text.startswith('"') and text.endswith('"'):
-            text = text[1:-1]
-        return text
     except Exception as e:
-        logger.warning(f'LLM call failed, using template fallback: {e}')
+        logger.error(f'huggingface_hub import failed: {e}')
         return None
+
+    for model in LLM_MODELS:
+        try:
+            client = InferenceClient(model=model, token=HF_TOKEN, timeout=10)
+            response = client.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.9,
+            )
+            text = response.choices[0].message.content.strip()
+            # Strip surrounding quotes if LLM wrapped the response
+            if text.startswith('"') and text.endswith('"'):
+                text = text[1:-1]
+            logger.info(f'LLM response from {model}: {text[:60]}')
+            return text
+        except Exception as e:
+            logger.warning(f'LLM call to {model} failed: {type(e).__name__}: {e}')
+            continue
+
+    logger.warning('All LLM models failed, using template fallback')
+    return None
 
 
 def get_analyzing_message():
