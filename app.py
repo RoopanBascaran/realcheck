@@ -284,8 +284,9 @@ def webhook_receive():
 
 
 def handle_video_message(sender_id, video_url):
+    from models.response_generator import get_analyzing_message, get_result_message, get_error_message
     try:
-        resp = send_instagram_reply(sender_id, "Analyzing your video... please wait.")
+        resp = send_instagram_reply(sender_id, get_analyzing_message())
         logger.info(f'Initial reply response: {resp.status_code} {resp.text}')
 
         # Download video to temp file
@@ -319,7 +320,7 @@ def handle_video_message(sender_id, video_url):
 
         send_instagram_reply(
             sender_id,
-            f"Result: This video appears to be {result}.\n\nWas this correct?",
+            get_result_message(result),
             quick_replies=[
                 {'content_type': 'text', 'title': 'YES ✅', 'payload': 'YES'},
                 {'content_type': 'text', 'title': 'NO ❌', 'payload': 'NO'}
@@ -329,7 +330,7 @@ def handle_video_message(sender_id, video_url):
     except Exception as e:
         logger.error(f'Error processing video: {e}')
         try:
-            send_instagram_reply(sender_id, "Sorry, I couldn't process that video. Please try again.")
+            send_instagram_reply(sender_id, get_error_message())
         except Exception as reply_err:
             logger.error(f'Failed to send error reply: {reply_err}')
 
