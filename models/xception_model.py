@@ -109,15 +109,13 @@ class AIDetector:
 
         # Skip feedback override when models are very confident about AI
         # Primary avg > 0.8 or second model > 0.95 = strong AI signal
-        # Strong AI signal: both models must agree, OR second model is extremely confident
-        # If models disagree (one says AI, other says Real), let feedback model decide
-        both_say_ai = avg_score > 0.5 and second_avg > 0.5
-        strong_ai_signal = (avg_score > 0.8 and both_say_ai) or second_avg > SECOND_MODEL_THRESHOLD
-        if strong_ai_signal and base_result == 'AI-generated':
-            logger.info(f'Skipping feedback model — strong AI signal (primary={avg_score:.3f}, second={second_avg:.3f})')
-            return base_result
+        # Feedback model can override, but needs higher confidence when both
+        # detection models agree on AI (to avoid overriding correct AI detections
+        # with stale feedback data)
+        both_models_say_ai = avg_score > 0.5 and second_avg > 0.5
+        fb_threshold = 0.9 if both_models_say_ai else 0.7
+        logger.info(f'Models agree on AI: {both_models_say_ai}, feedback threshold: {fb_threshold}')
 
-        # Check if feedback-trained classifier is available
         try:
             from models.feedback_trainer import predict_with_feedback_model
             feature_vectors = self.extract_features(video_path)
@@ -126,7 +124,7 @@ class AIDetector:
                 if fb_result is not None:
                     fb_label, fb_confidence = fb_result
                     logger.info(f'Feedback model: {fb_label} ({fb_confidence:.2f}), Base: {base_result} ({avg_score:.3f})')
-                    if fb_confidence > 0.7:
+                    if fb_confidence > fb_threshold:
                         return fb_label
         except Exception as e:
             logger.warning(f'Feedback model check failed: {e}')
