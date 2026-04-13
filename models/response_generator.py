@@ -83,6 +83,33 @@ def _call_llm(prompt, max_tokens=80):
             logger.warning(f'LLM call to {model} failed: {type(e).__name__}: {e}')
             continue
 
+    # Try Groq as final fallback (free tier, fast)
+    groq_key = os.environ.get('GROQ_API_KEY')
+    if groq_key:
+        try:
+            import requests as req
+            resp = req.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers={'Authorization': f'Bearer {groq_key}', 'Content-Type': 'application/json'},
+                json={
+                    'model': 'llama-3.1-8b-instant',
+                    'messages': [{'role': 'user', 'content': prompt}],
+                    'max_tokens': max_tokens,
+                    'temperature': 0.9,
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                text = resp.json()['choices'][0]['message']['content'].strip()
+                if text.startswith('"') and text.endswith('"'):
+                    text = text[1:-1]
+                logger.info(f'LLM response from Groq: {text[:60]}')
+                return text
+            else:
+                logger.warning(f'Groq call failed: {resp.status_code} {resp.text[:100]}')
+        except Exception as e:
+            logger.warning(f'Groq call failed: {type(e).__name__}: {e}')
+
     logger.warning('All LLM models failed, using template fallback')
     return None
 

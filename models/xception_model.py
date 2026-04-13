@@ -67,8 +67,9 @@ class AIDetector:
         else:
             base_result = 'Real'
 
-        # Check if feedback-trained classifier is available (skip for mixed)
-        if base_result != 'Mixed':
+        # Check if feedback-trained classifier is available
+        # Skip for mixed videos — mixed detection is a strong signal that should not be overridden
+        if not is_mixed:
             try:
                 from models.feedback_trainer import predict_with_feedback_model
                 feature_vectors = self.extract_features(video_path)
