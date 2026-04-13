@@ -214,18 +214,26 @@ class AIDetector:
             logger.info(f'Second model override: {second_avg:.3f} > {SECOND_MODEL_THRESHOLD}')
 
         # Step 2: Groq vision as tie-breaker
-        # Groq is good at confirming real videos but tends to say "Real" on everything.
-        # Only trust Groq's "Real" override when local models DISAGREE with each other
-        # (second model < 0.5 = not confident about AI).
-        # When both local models agree on AI, trust the local models.
-        local_models_disagree = second_avg < 0.5 or avg_score < 0.5
+        # Groq is good at confirming real videos.
+        # Second model (Ateeqq) is unreliable — scores ~1.0 on almost everything.
+        # Trust Groq's "Real" when:
+        #   - Primary has high avg but also high frame consensus (>=85% frames flagged AI)
+        #     This pattern = beauty filter / compression artifact false positive
+        #   - Second model actually says Real (< 0.5) — rare but meaningful signal
+        ai_frame_ratio = ai_frames / len(scores) if scores else 0
+        high_frame_consensus = ai_frame_ratio >= 0.85
+        primary_very_strong = avg_score > 0.9 and high_frame_consensus
+        second_says_real = second_avg < 0.5  # Rare but strong signal since second model usually scores high
+        # Trust Groq when: second model genuinely says Real, OR
+        # primary has high frames but not extreme confidence (beauty filter pattern)
+        groq_can_override = second_says_real or (high_frame_consensus and not primary_very_strong)
         if groq_available:
-            if local_says_ai and groq_says_real and groq_confidence >= 0.8 and local_models_disagree:
-                # Local models split + Groq says Real → trust Groq
+            if local_says_ai and groq_says_real and groq_confidence >= 0.8 and groq_can_override:
+                # Groq corrects false positive
                 base_result = 'Real'
                 logger.info(
-                    f'Groq override: models disagree (primary={avg_score:.3f}, second={second_avg:.3f}), '
-                    f'Groq says Real ({groq_confidence:.2f}) — trusting Groq'
+                    f'Groq override: primary={avg_score:.3f}, frames={ai_frames}/{len(scores)}, '
+                    f'second={second_avg:.3f}, Groq says Real ({groq_confidence:.2f}) — trusting Groq'
                 )
             elif not local_says_ai and groq_says_ai and groq_confidence >= 0.8:
                 # Groq catches AI that local models missed
