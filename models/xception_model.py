@@ -47,29 +47,18 @@ class AIDetector:
         real_frames = len(scores) - ai_frames
         max_ai_score = max(scores)
 
-        # Detect mixed/hybrid videos:
-        # If some frames are clearly AI (>0.7) AND some are clearly real (<0.3),
-        # this is a mixed video with both real and AI content
-        high_ai_frames = sum(1 for s in scores if s > 0.7)
-        low_real_frames = sum(1 for s in scores if s < 0.3)
-        is_mixed = high_ai_frames >= 2 and low_real_frames >= 2
-
         logger.info(
             f'Classification: avg={avg_score:.3f}, max={max_ai_score:.3f}, '
-            f'ai_frames={ai_frames}/{len(scores)}, mixed={is_mixed}'
+            f'ai_frames={ai_frames}/{len(scores)}'
         )
 
-        if is_mixed:
-            base_result = 'AI-generated'
-            logger.info('Mixed real+AI content detected — classifying as AI-generated')
-        elif avg_score > 0.5:
+        if avg_score > 0.5:
             base_result = 'AI-generated'
         else:
             base_result = 'Real'
 
         # Check if feedback-trained classifier is available
-        # Skip for mixed videos — mixed detection is a strong signal that should not be overridden
-        if not is_mixed:
+        if True:
             try:
                 from models.feedback_trainer import predict_with_feedback_model
                 feature_vectors = self.extract_features(video_path)
