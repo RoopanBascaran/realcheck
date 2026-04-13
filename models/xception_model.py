@@ -60,7 +60,8 @@ class AIDetector:
         )
 
         if is_mixed:
-            base_result = 'Mixed'
+            base_result = 'AI-generated'
+            logger.info('Mixed real+AI content detected — classifying as AI-generated')
         elif avg_score > 0.5:
             base_result = 'AI-generated'
         else:
