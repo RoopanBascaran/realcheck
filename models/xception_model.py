@@ -204,14 +204,17 @@ class AIDetector:
         groq_available = groq_result is not None
 
         # Step 1: Local models make initial call
+        # Second model (Ateeqq) scores ~1.0 on almost everything, so only let it
+        # override when primary model is at least borderline (> 0.4).
+        # If primary strongly says Real (< 0.4), second model alone can't override.
         second_model_triggered = False
         local_says_ai = False
         if avg_score > 0.5:
             local_says_ai = True
-        elif second_avg > SECOND_MODEL_THRESHOLD:
+        elif second_avg > SECOND_MODEL_THRESHOLD and avg_score > 0.4:
             local_says_ai = True
             second_model_triggered = True
-            logger.info(f'Second model override: {second_avg:.3f} > {SECOND_MODEL_THRESHOLD}')
+            logger.info(f'Second model override: {second_avg:.3f} > {SECOND_MODEL_THRESHOLD}, primary={avg_score:.3f}')
 
         # Step 2: Groq vision as tie-breaker
         # Groq is good at confirming real videos.
