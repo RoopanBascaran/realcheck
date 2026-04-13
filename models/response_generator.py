@@ -43,6 +43,15 @@ REAL_RESULT_TEMPLATES = [
     "real deal 💯 no AI signs on this one",
 ]
 
+MIXED_RESULT_TEMPLATES = [
+    "yo heads up ⚠️ this video mixes real and AI footage together. some parts are real but there's fake stuff hidden in between. don't trust it fully!",
+    "bro be careful 👀 this one's tricky — it's got real clips mixed with AI-generated parts. don't fall for it!",
+    "this video is sneaky 🚨 parts of it are real but some sections are AI-made. they're mixing real and fake together to trick people!",
+    "watch out fam ⚠️ this isn't fully real OR fully AI — it's a mix of both. someone blended real footage with AI content to make it look legit",
+    "nah this is sus 🤔 the video switches between real and AI-generated parts. classic trick to fool people — stay sharp!",
+    "careful with this one 👀 it's a hybrid — real video mixed with AI content. some parts are genuine but others are fake!",
+]
+
 ERROR_TEMPLATES = [
     "oops, something went wrong 😕 could you try sending the video again?",
     "hmm couldn't process that one 🤔 try again?",
@@ -99,8 +108,17 @@ def get_analyzing_message():
 
 
 def get_result_message(result):
-    """Message with the classification result. `result` is 'AI-generated' or 'Real'."""
-    if result == 'AI-generated':
+    """Message with the classification result. `result` is 'AI-generated', 'Real', or 'Mixed'."""
+    if result == 'Mixed':
+        prompt = (
+            "Generate a short casual Instagram DM reply (2 sentences, max 30 words) "
+            "warning the user their video contains BOTH real and AI-generated parts mixed together. "
+            "Explain that some parts are real but AI content is hidden in between to trick people. "
+            "Sound like a friend warning them. Use slang like 'bro', 'yo', 'fam'. "
+            "Include 1-2 warning emojis. Reply with ONLY the message, no quotes, no explanation."
+        )
+        fallback_list = MIXED_RESULT_TEMPLATES
+    elif result == 'AI-generated':
         prompt = (
             "Generate a short casual Instagram DM reply (1-2 sentences, max 25 words) "
             "warning the user their video is AI-generated/fake and to be careful. "

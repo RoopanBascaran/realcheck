@@ -18,6 +18,7 @@
         .classification{display:inline-block;padding:12px 32px;border-radius:12px;font-size:22px;font-weight:700;margin-bottom:36px}
         .classification.real{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#4ade80}
         .classification.ai{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#f87171}
+        .classification.mixed{background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);color:#fbbf24}
         h3{font-size:16px;font-weight:600;margin-bottom:16px;color:#e0e0e0}
         .radio-group{display:flex;justify-content:center;gap:24px;margin-bottom:24px}
         .radio-group label{display:flex;align-items:center;gap:8px;font-size:14px;color:#aaa;cursor:pointer}
@@ -36,7 +37,7 @@
     <div class="container">
         <h1>Classification Result</h1>
         <p class="result-label">Your video has been classified as:</p>
-        <div class="classification {{ 'ai' if classification == 'AI-generated' else 'real' }}">{{ classification }}</div>
+        <div class="classification {{ 'ai' if classification == 'AI-generated' else ('mixed' if classification == 'Mixed' else 'real') }}">{{ classification }}{{ ' ⚠️ Real + AI parts detected' if classification == 'Mixed' else '' }}</div>
 
         <h3>Was this correct?</h3>
         <form action="{{ url_for('feedback') }}" method="post">

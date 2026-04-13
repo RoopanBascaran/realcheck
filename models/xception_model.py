@@ -19,46 +19,67 @@ class AIDetector:
         self.model.eval()
         logger.info('Model loaded successfully')
 
+    def _score_frame(self, frame):
+        """Score a single frame. Returns AI probability (0.0 to 1.0)."""
+        img = Image.fromarray(frame)
+        inputs = self.processor(images=img, return_tensors='pt')
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        probs = torch.softmax(outputs.logits, dim=1)[0]
+
+        labels = self.model.config.id2label
+        ai_score = 0.0
+        for idx, label_name in labels.items():
+            if 'ai' in label_name.lower() or 'fake' in label_name.lower() or 'artificial' in label_name.lower():
+                ai_score = probs[idx].item()
+                break
+        return ai_score
+
     def classify(self, video_path):
-        frames = extract_frames(video_path)
+        frames = extract_frames(video_path, max_frames=20)
         if not frames:
             return 'Real'
 
-        scores = []
-        for frame in frames:
-            img = Image.fromarray(frame)
-            inputs = self.processor(images=img, return_tensors='pt')
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-            probs = torch.softmax(outputs.logits, dim=1)[0]
-
-            # Get label mapping
-            labels = self.model.config.id2label
-            ai_score = 0.0
-            for idx, label_name in labels.items():
-                if 'ai' in label_name.lower() or 'fake' in label_name.lower() or 'artificial' in label_name.lower():
-                    ai_score = probs[idx].item()
-                    break
-
-            scores.append(ai_score)
+        scores = [self._score_frame(frame) for frame in frames]
 
         avg_score = np.mean(scores)
-        logger.info(f'Classification: avg_score={avg_score:.3f} from {len(scores)} frames')
-        base_result = 'AI-generated' if avg_score > 0.5 else 'Real'
+        ai_frames = sum(1 for s in scores if s > 0.5)
+        real_frames = len(scores) - ai_frames
+        max_ai_score = max(scores)
 
-        # Check if feedback-trained classifier is available
-        try:
-            from models.feedback_trainer import predict_with_feedback_model
-            feature_vectors = self.extract_features(video_path)
-            if feature_vectors is not None:
-                fb_result = predict_with_feedback_model(feature_vectors)
-                if fb_result is not None:
-                    fb_label, fb_confidence = fb_result
-                    logger.info(f'Feedback model: {fb_label} ({fb_confidence:.2f}), Base model: {base_result} ({avg_score:.3f})')
-                    if fb_confidence > 0.7:
-                        return fb_label
-        except Exception as e:
-            logger.warning(f'Feedback model check failed: {e}')
+        # Detect mixed/hybrid videos:
+        # If some frames are clearly AI (>0.7) AND some are clearly real (<0.3),
+        # this is a mixed video with both real and AI content
+        high_ai_frames = sum(1 for s in scores if s > 0.7)
+        low_real_frames = sum(1 for s in scores if s < 0.3)
+        is_mixed = high_ai_frames >= 2 and low_real_frames >= 2
+
+        logger.info(
+            f'Classification: avg={avg_score:.3f}, max={max_ai_score:.3f}, '
+            f'ai_frames={ai_frames}/{len(scores)}, mixed={is_mixed}'
+        )
+
+        if is_mixed:
+            base_result = 'Mixed'
+        elif avg_score > 0.5:
+            base_result = 'AI-generated'
+        else:
+            base_result = 'Real'
+
+        # Check if feedback-trained classifier is available (skip for mixed)
+        if base_result != 'Mixed':
+            try:
+                from models.feedback_trainer import predict_with_feedback_model
+                feature_vectors = self.extract_features(video_path)
+                if feature_vectors is not None:
+                    fb_result = predict_with_feedback_model(feature_vectors)
+                    if fb_result is not None:
+                        fb_label, fb_confidence = fb_result
+                        logger.info(f'Feedback model: {fb_label} ({fb_confidence:.2f}), Base model: {base_result} ({avg_score:.3f})')
+                        if fb_confidence > 0.7:
+                            return fb_label
+            except Exception as e:
+                logger.warning(f'Feedback model check failed: {e}')
 
         return base_result
 
