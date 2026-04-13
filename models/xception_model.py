@@ -109,7 +109,7 @@ class AIDetector:
 
         # Skip feedback override when models are very confident about AI
         # Primary avg > 0.8 or second model > 0.95 = strong AI signal
-        strong_ai_signal = avg_score > 0.8 or second_model_triggered
+        strong_ai_signal = avg_score > 0.8 or second_avg > SECOND_MODEL_THRESHOLD
         if strong_ai_signal and base_result == 'AI-generated':
             logger.info(f'Skipping feedback model — strong AI signal (primary={avg_score:.3f}, second={second_avg:.3f})')
             return base_result
