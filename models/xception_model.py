@@ -97,15 +97,23 @@ class AIDetector:
         # 1. If primary model says AI (avg > 0.5) → AI-generated
         # 2. If second model is very confident (avg > 0.95) → AI-generated
         # 3. Otherwise → Real
+        second_model_triggered = False
         if avg_score > 0.5:
             base_result = 'AI-generated'
         elif second_avg > SECOND_MODEL_THRESHOLD:
             base_result = 'AI-generated'
+            second_model_triggered = True
             logger.info(f'Second model override: {second_avg:.3f} > {SECOND_MODEL_THRESHOLD}')
         else:
             base_result = 'Real'
 
         # Check if feedback-trained classifier is available
+        # Skip feedback override when second model triggered — it's a strong signal
+        # that the feedback model hasn't been trained on yet
+        if second_model_triggered:
+            logger.info('Skipping feedback model — second model detection is authoritative')
+            return base_result
+
         try:
             from models.feedback_trainer import predict_with_feedback_model
             feature_vectors = self.extract_features(video_path)
