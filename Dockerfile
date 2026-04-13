@@ -19,8 +19,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-download Nahrawy/AIorNot model at build time
-RUN python -c "from transformers import ViTImageProcessor, AutoModelForImageClassification; ViTImageProcessor.from_pretrained('Nahrawy/AIorNot'); AutoModelForImageClassification.from_pretrained('Nahrawy/AIorNot')"
+# Pre-download models at build time
+RUN python -c "from transformers import ViTImageProcessor, AutoImageProcessor, AutoModelForImageClassification; \
+    ViTImageProcessor.from_pretrained('Nahrawy/AIorNot'); \
+    AutoModelForImageClassification.from_pretrained('Nahrawy/AIorNot'); \
+    AutoImageProcessor.from_pretrained('Ateeqq/ai-vs-human-image-detector'); \
+    AutoModelForImageClassification.from_pretrained('Ateeqq/ai-vs-human-image-detector')"
 
 COPY --chown=user:user . .
 

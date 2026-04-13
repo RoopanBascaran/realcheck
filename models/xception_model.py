@@ -1,4 +1,4 @@
-from transformers import ViTImageProcessor, AutoModelForImageClassification
+from transformers import ViTImageProcessor, AutoImageProcessor, AutoModelForImageClassification
 from PIL import Image
 import numpy as np
 import cv2
@@ -8,19 +8,34 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = 'Nahrawy/AIorNot'
+PRIMARY_MODEL = 'Nahrawy/AIorNot'
+SECOND_MODEL = 'Ateeqq/ai-vs-human-image-detector'
+SECOND_MODEL_THRESHOLD = 0.95  # Only override if very confident
 
 
 class AIDetector:
     def __init__(self):
-        logger.info(f'Loading model: {MODEL_NAME}')
-        self.processor = ViTImageProcessor.from_pretrained(MODEL_NAME)
-        self.model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
+        # Load primary model (Nahrawy)
+        logger.info(f'Loading primary model: {PRIMARY_MODEL}')
+        self.processor = ViTImageProcessor.from_pretrained(PRIMARY_MODEL)
+        self.model = AutoModelForImageClassification.from_pretrained(PRIMARY_MODEL)
         self.model.eval()
-        logger.info('Model loaded successfully')
+        logger.info('Primary model loaded')
+
+        # Load second model (Ateeqq) for catching modern AI content
+        try:
+            logger.info(f'Loading second model: {SECOND_MODEL}')
+            self.processor2 = AutoImageProcessor.from_pretrained(SECOND_MODEL)
+            self.model2 = AutoModelForImageClassification.from_pretrained(SECOND_MODEL)
+            self.model2.eval()
+            self.has_second_model = True
+            logger.info('Second model loaded')
+        except Exception as e:
+            logger.warning(f'Could not load second model: {e}')
+            self.has_second_model = False
 
     def _score_frame(self, frame):
-        """Score a single frame. Returns AI probability (0.0 to 1.0)."""
+        """Score a single frame with primary model. Returns AI probability."""
         img = Image.fromarray(frame)
         inputs = self.processor(images=img, return_tensors='pt')
         with torch.no_grad():
@@ -35,42 +50,74 @@ class AIDetector:
                 break
         return ai_score
 
+    def _score_frame_second(self, frame):
+        """Score a single frame with second model. Returns AI probability."""
+        if not self.has_second_model:
+            return 0.0
+        img = Image.fromarray(frame)
+        inputs = self.processor2(images=img, return_tensors='pt')
+        with torch.no_grad():
+            outputs = self.model2(**inputs)
+        probs = torch.softmax(outputs.logits, dim=1)[0]
+
+        labels = self.model2.config.id2label
+        ai_score = 0.0
+        for idx, label_name in labels.items():
+            if 'ai' in label_name.lower() or 'fake' in label_name.lower():
+                ai_score = probs[idx].item()
+                break
+        return ai_score
+
     def classify(self, video_path):
         frames = extract_frames(video_path, max_frames=20)
         if not frames:
             return 'Real'
 
+        # Primary model scores
         scores = [self._score_frame(frame) for frame in frames]
-
         avg_score = np.mean(scores)
         ai_frames = sum(1 for s in scores if s > 0.5)
-        real_frames = len(scores) - ai_frames
         max_ai_score = max(scores)
 
+        # Second model scores (for catching modern AI that primary misses)
+        second_avg = 0.0
+        if self.has_second_model:
+            scores2 = [self._score_frame_second(frame) for frame in frames]
+            second_avg = np.mean(scores2)
+            logger.info(
+                f'Second model: avg={second_avg:.3f}, max={max(scores2):.3f}'
+            )
+
         logger.info(
-            f'Classification: avg={avg_score:.3f}, max={max_ai_score:.3f}, '
+            f'Primary model: avg={avg_score:.3f}, max={max_ai_score:.3f}, '
             f'ai_frames={ai_frames}/{len(scores)}'
         )
 
+        # Decision logic:
+        # 1. If primary model says AI (avg > 0.5) → AI-generated
+        # 2. If second model is very confident (avg > 0.95) → AI-generated
+        # 3. Otherwise → Real
         if avg_score > 0.5:
             base_result = 'AI-generated'
+        elif second_avg > SECOND_MODEL_THRESHOLD:
+            base_result = 'AI-generated'
+            logger.info(f'Second model override: {second_avg:.3f} > {SECOND_MODEL_THRESHOLD}')
         else:
             base_result = 'Real'
 
         # Check if feedback-trained classifier is available
-        if True:
-            try:
-                from models.feedback_trainer import predict_with_feedback_model
-                feature_vectors = self.extract_features(video_path)
-                if feature_vectors is not None:
-                    fb_result = predict_with_feedback_model(feature_vectors)
-                    if fb_result is not None:
-                        fb_label, fb_confidence = fb_result
-                        logger.info(f'Feedback model: {fb_label} ({fb_confidence:.2f}), Base model: {base_result} ({avg_score:.3f})')
-                        if fb_confidence > 0.7:
-                            return fb_label
-            except Exception as e:
-                logger.warning(f'Feedback model check failed: {e}')
+        try:
+            from models.feedback_trainer import predict_with_feedback_model
+            feature_vectors = self.extract_features(video_path)
+            if feature_vectors is not None:
+                fb_result = predict_with_feedback_model(feature_vectors)
+                if fb_result is not None:
+                    fb_label, fb_confidence = fb_result
+                    logger.info(f'Feedback model: {fb_label} ({fb_confidence:.2f}), Base: {base_result} ({avg_score:.3f})')
+                    if fb_confidence > 0.7:
+                        return fb_label
+        except Exception as e:
+            logger.warning(f'Feedback model check failed: {e}')
 
         return base_result
 
@@ -86,9 +133,8 @@ class AIDetector:
             inputs = self.processor(images=img, return_tensors='pt')
             with torch.no_grad():
                 outputs = self.model(**inputs, output_hidden_states=True)
-            # Use last hidden state, averaged over patches, as feature vector
-            hidden = outputs.hidden_states[-1]  # (1, num_patches, hidden_dim)
-            feature = hidden.mean(dim=1).squeeze().numpy()  # (hidden_dim,)
+            hidden = outputs.hidden_states[-1]
+            feature = hidden.mean(dim=1).squeeze().numpy()
             all_features.append(feature)
 
         return np.array(all_features)
