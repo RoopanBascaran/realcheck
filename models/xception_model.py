@@ -85,20 +85,16 @@ class AIDetector:
         if not groq_key:
             return None
 
-        # Pick 5 frames evenly spread across the video
+        # Pick 1 frame from the middle (minimizes token usage for free tier)
         n = len(frames)
-        if n >= 5:
-            indices = [0, n // 4, n // 2, 3 * n // 4, n - 1]
-        else:
-            indices = list(range(n))
-        selected = [frames[i] for i in indices]
+        selected = [frames[n // 2]]
 
         # Build image content — no model scores to avoid biasing Groq
         image_content = [
             {
                 "type": "text",
                 "text": (
-                    f"These are {len(selected)} frames extracted from a video. "
+                    "This is a frame extracted from a video. "
                     "Analyze them for signs of AI generation: unnatural textures, "
                     "lighting inconsistencies, morphing artifacts, anatomical errors, "
                     "warping, repetitive patterns, too-smooth skin, weird hands/fingers, "
@@ -135,7 +131,7 @@ class AIDetector:
                         },
                         {'role': 'user', 'content': image_content}
                     ],
-                    'max_tokens': 150,
+                    'max_tokens': 100,
                     'temperature': 0.1,
                 },
                 timeout=15,
