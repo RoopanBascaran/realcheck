@@ -3,6 +3,10 @@ from PIL import Image
 import numpy as np
 import cv2
 import os
+import io
+import base64
+import json
+import re
 import torch
 import logging
 
@@ -68,6 +72,97 @@ class AIDetector:
                 break
         return ai_score
 
+    def _encode_frame_base64(self, frame):
+        """Encode a numpy RGB frame to base64 JPEG."""
+        img = Image.fromarray(frame)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=85)
+        return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    def _score_frames_groq_vision(self, frames):
+        """Send frames to Groq vision model for AI detection. Returns dict or None."""
+        groq_key = os.environ.get('GROQ_API_KEY')
+        if not groq_key:
+            return None
+
+        # Pick 5 frames evenly spread across the video
+        n = len(frames)
+        if n >= 5:
+            indices = [0, n // 4, n // 2, 3 * n // 4, n - 1]
+        else:
+            indices = list(range(n))
+        selected = [frames[i] for i in indices]
+
+        # Build image content — no model scores to avoid biasing Groq
+        image_content = [
+            {
+                "type": "text",
+                "text": (
+                    f"These are {len(selected)} frames extracted from a video. "
+                    "Analyze them for signs of AI generation: unnatural textures, "
+                    "lighting inconsistencies, morphing artifacts, anatomical errors, "
+                    "warping, repetitive patterns, too-smooth skin, weird hands/fingers, "
+                    "or any visual glitches. "
+                    "Respond with ONLY a JSON object, no other text: "
+                    '{"verdict": "AI" or "Real", "confidence": 0.0-1.0, "reason": "brief explanation"}'
+                )
+            }
+        ]
+        for f in selected:
+            b64 = self._encode_frame_base64(f)
+            image_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
+            })
+
+        try:
+            import requests as req
+            resp = req.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers={
+                    'Authorization': f'Bearer {groq_key}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'model': 'meta-llama/llama-4-scout-17b-16e-instruct',
+                    'messages': [
+                        {
+                            'role': 'system',
+                            'content': (
+                                'You are an expert at detecting AI-generated images and videos. '
+                                'You analyze visual artifacts to determine authenticity.'
+                            )
+                        },
+                        {'role': 'user', 'content': image_content}
+                    ],
+                    'max_tokens': 150,
+                    'temperature': 0.1,
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                logger.warning(f'Groq vision call failed: {resp.status_code} {resp.text[:200]}')
+                return None
+
+            text = resp.json()['choices'][0]['message']['content'].strip()
+            # Strip markdown code blocks if present
+            text = re.sub(r'^```json\s*', '', text)
+            text = re.sub(r'\s*```$', '', text)
+
+            result = json.loads(text)
+            verdict = result.get('verdict', '').lower()
+            confidence = float(result.get('confidence', 0.5))
+            reason = result.get('reason', '')
+            logger.info(f'Groq vision: verdict={verdict}, confidence={confidence:.2f}, reason={reason}')
+            return {'verdict': verdict, 'confidence': confidence, 'reason': reason}
+
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning(f'Groq vision response parse failed: {e}')
+            return None
+        except Exception as e:
+            logger.warning(f'Groq vision call failed: {type(e).__name__}: {e}')
+            return None
+
     def classify(self, video_path):
         frames = extract_frames(video_path, max_frames=20)
         if not frames:
@@ -93,28 +188,74 @@ class AIDetector:
             f'ai_frames={ai_frames}/{len(scores)}'
         )
 
-        # Decision logic:
-        # 1. If primary model says AI (avg > 0.5) → AI-generated
-        # 2. If second model is very confident (avg > 0.95) → AI-generated
-        # 3. Otherwise → Real
+        # Groq vision model (third opinion)
+        groq_says_ai = False
+        groq_confidence = 0.0
+        groq_result = self._score_frames_groq_vision(frames)
+        if groq_result:
+            groq_says_ai = groq_result['verdict'] == 'ai'
+            groq_confidence = groq_result['confidence']
+
+        # Decision logic with three models:
+        # Local models detect AI well but give false positives on real videos.
+        # Groq vision is great at confirming real videos but misses AI.
+        # Strategy: local models propose, Groq gets final say as tie-breaker.
+        groq_says_real = groq_result is not None and not groq_says_ai
+        groq_available = groq_result is not None
+
+        # Step 1: Local models make initial call
         second_model_triggered = False
+        local_says_ai = False
         if avg_score > 0.5:
-            base_result = 'AI-generated'
+            local_says_ai = True
         elif second_avg > SECOND_MODEL_THRESHOLD:
-            base_result = 'AI-generated'
+            local_says_ai = True
             second_model_triggered = True
             logger.info(f'Second model override: {second_avg:.3f} > {SECOND_MODEL_THRESHOLD}')
-        else:
-            base_result = 'Real'
 
-        # Skip feedback override when models are very confident about AI
-        # Primary avg > 0.8 or second model > 0.95 = strong AI signal
-        # Feedback model can override, but needs higher confidence when both
-        # detection models agree on AI (to avoid overriding correct AI detections
-        # with stale feedback data)
-        both_models_say_ai = avg_score > 0.5 and second_avg > 0.5
-        fb_threshold = 0.9 if both_models_say_ai else 0.7
-        logger.info(f'Models agree on AI: {both_models_say_ai}, feedback threshold: {fb_threshold}')
+        # Step 2: Groq vision as tie-breaker
+        # Groq is good at confirming real videos but tends to say "Real" on everything.
+        # Only trust Groq's "Real" override when local models DISAGREE with each other
+        # (second model < 0.5 = not confident about AI).
+        # When both local models agree on AI, trust the local models.
+        local_models_disagree = second_avg < 0.5 or avg_score < 0.5
+        if groq_available:
+            if local_says_ai and groq_says_real and groq_confidence >= 0.8 and local_models_disagree:
+                # Local models split + Groq says Real → trust Groq
+                base_result = 'Real'
+                logger.info(
+                    f'Groq override: models disagree (primary={avg_score:.3f}, second={second_avg:.3f}), '
+                    f'Groq says Real ({groq_confidence:.2f}) — trusting Groq'
+                )
+            elif not local_says_ai and groq_says_ai and groq_confidence >= 0.8:
+                # Groq catches AI that local models missed
+                base_result = 'AI-generated'
+                logger.info(f'Groq detected AI that local models missed ({groq_confidence:.2f})')
+            elif local_says_ai and groq_says_ai:
+                # All agree on AI
+                base_result = 'AI-generated'
+                logger.info('All models agree: AI-generated')
+            else:
+                # Default to local model decision
+                base_result = 'AI-generated' if local_says_ai else 'Real'
+        else:
+            # Groq unavailable — fall back to local models only
+            base_result = 'AI-generated' if local_says_ai else 'Real'
+            logger.info('Groq unavailable, using local models only')
+
+        # Dynamic feedback threshold based on model agreement
+        models_saying_ai = sum([
+            avg_score > 0.5,
+            second_avg > 0.5,
+            groq_says_ai and groq_confidence >= 0.7,
+        ])
+        if models_saying_ai >= 3:
+            fb_threshold = 0.95
+        elif models_saying_ai >= 2:
+            fb_threshold = 0.9
+        else:
+            fb_threshold = 0.7
+        logger.info(f'Models saying AI: {models_saying_ai}/3, feedback threshold: {fb_threshold}')
 
         try:
             from models.feedback_trainer import predict_with_feedback_model
