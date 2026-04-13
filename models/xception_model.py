@@ -107,13 +107,14 @@ class AIDetector:
         else:
             base_result = 'Real'
 
-        # Check if feedback-trained classifier is available
-        # Skip feedback override when second model triggered — it's a strong signal
-        # that the feedback model hasn't been trained on yet
-        if second_model_triggered:
-            logger.info('Skipping feedback model — second model detection is authoritative')
+        # Skip feedback override when models are very confident about AI
+        # Primary avg > 0.8 or second model > 0.95 = strong AI signal
+        strong_ai_signal = avg_score > 0.8 or second_model_triggered
+        if strong_ai_signal and base_result == 'AI-generated':
+            logger.info(f'Skipping feedback model — strong AI signal (primary={avg_score:.3f}, second={second_avg:.3f})')
             return base_result
 
+        # Check if feedback-trained classifier is available
         try:
             from models.feedback_trainer import predict_with_feedback_model
             feature_vectors = self.extract_features(video_path)
