@@ -255,9 +255,10 @@ class AIDetector:
             logger.info('Groq unavailable, using local models only')
 
         # Dynamic feedback threshold based on model agreement
+        # Only count second model if primary is also borderline (same logic as Step 1)
         models_saying_ai = sum([
             avg_score > 0.5,
-            second_avg > 0.5,
+            second_avg > 0.5 and avg_score > 0.4,
             groq_says_ai and groq_confidence >= 0.7,
         ])
         if models_saying_ai >= 3:
@@ -277,7 +278,11 @@ class AIDetector:
                     fb_label, fb_confidence = fb_result
                     logger.info(f'Feedback model: {fb_label} ({fb_confidence:.2f}), Base: {base_result} ({avg_score:.3f})')
                     if fb_confidence > fb_threshold:
-                        return fb_label
+                        # Don't let feedback model override to AI when primary clearly says Real
+                        if fb_label == 'AI-generated' and avg_score < 0.4:
+                            logger.info(f'Feedback override blocked: primary too low ({avg_score:.3f}) for AI')
+                        else:
+                            return fb_label
         except Exception as e:
             logger.warning(f'Feedback model check failed: {e}')
 
